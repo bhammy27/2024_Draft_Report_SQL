@@ -54,3 +54,32 @@ SELECT
 	ROUND(SUM(fpts) / SUM(games),2) AS avg__d_fpts
 FROM
 	defense_report;
+	
+	
+WITH ranked_teams AS (
+    SELECT
+        week,
+        team_code,
+        fpts,
+        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank
+    FROM
+        defense_report
+    GROUP BY
+        week,
+        team_code,
+	fpts
+	)
+SELECT
+    week,
+    team_code,
+    fpts,
+    team_rank,
+    CASE
+        WHEN fpts = MAX(fpts) OVER (PARTITION BY week) THEN 'Highest'
+		WHEN team_rank <= 0.05 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 5%'
+        WHEN team_rank <= 0.10 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 10%'
+        WHEN team_rank <= 0.25 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 25%'
+        ELSE 'Below Average'
+    END AS percentile_rank
+FROM
+    ranked_teams;
