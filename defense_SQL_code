@@ -1,0 +1,56 @@
+-- 2024 DRAFT REPORT
+
+-- Creating a VIEW filering all records for the 2023
+CREATE VIEW defense_report AS
+SELECT *
+FROM defense
+WHERE
+	season = 2023;
+	
+-- double checking all weekly fpts values by cross referencing pts from my Yahoo league	
+-- using the query below to filter through each team_code to check each team
+-- also looking out for missing or duplicate values and errors that may have been overlooked
+SELECT week, fpts
+FROM defense_report
+WHERE team_code = 'SF'
+ORDER BY week;
+
+-- CREATING KPIs for 2024 DRAFT REPORT
+
+-- total fpts in 2023
+-- cross referencing values with total_fpts values in my Excel Analysis
+SELECT 
+	player,
+	SUM(fpts) AS total_fpts
+FROM
+	defense_report
+GROUP BY 
+	player
+ORDER BY
+	player;
+	
+-- total fpts in 2023
+-- cross referencing values with total_fpts values in my Excel Analysis
+SELECT 
+	player,
+	ROUND(SUM(fpts) / SUM(games),2) AS avg_fpts
+FROM
+	defense_report
+GROUP BY 
+	player
+ORDER BY
+	player;
+-- Because each team has a BYE week with fpts value of 0, could not use AVG function
+-- Using AVG function reduced the output by factoring in an extra week with a value of 0 fpts
+
+-- CREATING TOTAL DEFENSIVE POINTS AND AVG DEFENSIVE FPTS FOR 2023
+-- will use this to calculate player percentile rankings
+SELECT
+	SUM(fpts) AS total_D_fpts
+FROM
+	defense_report;
+
+SELECT 
+	ROUND(SUM(fpts) / SUM(games),2) AS avg__d_fpts
+FROM
+	defense_report;
