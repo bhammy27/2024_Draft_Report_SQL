@@ -1,12 +1,12 @@
 -- 2024 DRAFT REPORT
 
--- Creating a VIEW filering all records for the 2023
-CREATE VIEW defense_report AS
+-- Creating a TABLE filering all records for the 2023
+CREATE TABLE defense_report AS
 SELECT *
 FROM defense
 WHERE
 	season = 2023;
-	
+
 -- double checking all weekly fpts values by cross referencing pts from my Yahoo league	
 -- using the query below to filter through each team_code to check each team
 -- also looking out for missing or duplicate values and errors that may have been overlooked
@@ -15,59 +15,25 @@ FROM defense_report
 WHERE team_code = 'SF'
 ORDER BY week;
 
--- CREATING KPIs for 2024 DRAFT REPORT
+-- CREATING KPIs queries for 2024 DRAFT REPORT
 
--- total fpts in 2023
--- cross referencing values with total_fpts values in my Excel Analysis
-SELECT 
-	player,
-	SUM(fpts) AS total_fpts
-FROM
-	defense_report
-GROUP BY 
-	player
-ORDER BY
-	player;
-	
--- total fpts in 2023
--- cross referencing values with total_fpts values in my Excel Analysis
-SELECT 
-	player,
-	ROUND(SUM(fpts) / SUM(games),2) AS avg_fpts
-FROM
-	defense_report
-GROUP BY 
-	player
-ORDER BY
-	player;
--- Because each team has a BYE week with fpts value of 0, could not use AVG function
--- Using AVG function reduced the output by factoring in an extra week with a value of 0 fpts
+-- 	Creating a ranking system based on percentile rank
+--  Finding the highest score, players scoring in top 5%, 10%, 25%, and above avg each week
 
--- CREATING TOTAL DEFENSIVE POINTS AND AVG DEFENSIVE FPTS FOR 2023
--- will use this to calculate player percentile rankings
-SELECT
-	SUM(fpts) AS total_D_fpts
-FROM
-	defense_report;
-
-SELECT 
-	ROUND(SUM(fpts) / SUM(games),2) AS avg__d_fpts
-FROM
-	defense_report;
-	
-	
 WITH ranked_teams AS (
     SELECT
         week,
         team_code,
         fpts,
-        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank
+        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
+-- finding the average fpts for each week to find players with fpts above average
+        AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
     FROM
         defense_report
     GROUP BY
         week,
         team_code,
-	fpts
+	    fpts
 	)
 SELECT
     week,
@@ -79,7 +45,67 @@ SELECT
 		WHEN team_rank <= 0.05 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 5%'
         WHEN team_rank <= 0.10 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 10%'
         WHEN team_rank <= 0.25 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 25%'
-        ELSE 'Below Average'
-    END AS percentile_rank
+        WHEN fpts > avg_weekly_fpts THEN 'Above Average'
+        ELSE ''
+	END AS percentile_rank
 FROM
     ranked_teams;
+-- The results match the results from Excel analyis that uses conditional formatting to achieve this 
+
+
+
+-- Assigning the results to the defense_report table adding team_rank column
+ALTER TABLE defense_report
+ADD COLUMN team_rank INTEGER,
+ADD COLUMN percentile_rank VARCHAR(20);
+
+-- Inserting the team_rank values into defense_report
+-- Using the results from the CTE allows for only 1 calculation of team_rank
+-- This saves 251 msec of run time
+WITH ranked_teams AS (
+    SELECT
+        week,
+        team_code,
+        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank
+    FROM
+        defense_report
+    GROUP BY
+        week,
+        team_code
+)
+UPDATE defense_report AS dr
+SET team_rank = rt.team_rank
+FROM ranked_teams AS rt
+WHERE dr.week = rt.week AND dr.team_code = rt.team_code;
+-- Using the Where clause to match team_rank with the unique combination of team_code and week
+WHERE dr.week = rt.week AND dr.team_code = rt.team_code;
+
+
+-- inserting values for percentile_rank into defense_report
+WITH ranked_teams AS (
+    SELECT
+        week,
+        team_code,
+        fpts,
+        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
+        MAX(fpts) OVER (PARTITION BY week) AS max_fpts,
+        COUNT(*) OVER (PARTITION BY week) AS total_teams,
+        AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
+    FROM
+        defense_report
+    GROUP BY
+        week,
+        team_code,
+        fpts
+)
+UPDATE defense_report AS dr
+SET percentile_rank = CASE
+        WHEN rt.fpts = rt.max_fpts THEN 'Highest'
+        WHEN rt.team_rank <= 0.05 * rt.total_teams THEN 'Top 5%'
+        WHEN rt.team_rank <= 0.10 * rt.total_teams THEN 'Top 10%'
+        WHEN rt.team_rank <= 0.25 * rt.total_teams THEN 'Top 25%'
+        WHEN rt.fpts > rt.avg_weekly_fpts THEN 'Above Average'
+        ELSE ''
+    END
+FROM ranked_teams AS rt
+WHERE dr.week = rt.week AND dr.team_code = rt.team_code;
