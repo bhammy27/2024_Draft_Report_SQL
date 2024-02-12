@@ -1,0 +1,205 @@
+-- 2024 Draft Report
+-- CREATE TABLE to get RB KPI's
+CREATE TABLE rb_report AS
+SELECT 
+	player,
+	team_code,
+	position,
+	rec,
+	targets,
+	rec_yds,
+	rec_td,
+	carries,
+	run_yds,
+	run_td,
+	fumbles_lost,
+	games,
+	fpts
+FROM 
+	running_back
+WHERE 
+	season = 2023
+GROUP BY
+	player,
+	team_code,
+	position,
+	rec,
+	targets,
+	rec_yds,
+	rec_td,
+	carries,
+	run_yds,
+	run_td,
+	fumbles_lost,
+	games,
+	fpts,
+	season	
+HAVING
+	SUM(targets) > 0
+	AND SUM(carries) > 0
+	
+-- Adding new columns for total 2023 stats	
+ALTER TABLE rb_report
+ADD COLUMN tot_rec integer,
+ADD COLUMN tot_targets integer,
+ADD COLUMN tot_rec_yds integer,
+ADD COLUMN tot_rec_td integer,
+ADD COLUMN tot_carries integer,
+ADD COLUMN tot_run_yds integer,
+ADD COLUMN tot_run_td integer,
+ADD COLUMN tot_fumbles_lost integer,
+ADD COLUMN tot_games integer,
+ADD COLUMN tot_fpts integer,
+ADD COLUMN avg_fpts numeric
+
+UPDATE rb_report
+SET 
+    tot_rec = rb_totals.tot_rec,
+    tot_targets = rb_totals.tot_targets,
+    tot_rec_yds = rb_totals.tot_rec_yds,
+    tot_rec_td = rb_totals.tot_rec_td,
+    tot_carries = rb_totals.tot_carries,
+    tot_run_yds = rb_totals.tot_run_yds,
+    tot_run_td = rb_totals.tot_run_td,
+    tot_fumbles_lost = rb_totals.tot_fumbles_lost,
+    tot_games = rb_totals.tot_games,
+    tot_fpts = rb_totals.tot_fpts,
+    avg_fpts = rb_totals.avg_fpts,
+    position = 'RB'
+FROM (
+    SELECT 
+        player,
+        SUM(rec) AS tot_rec,
+        SUM(targets) AS tot_targets,
+        SUM(rec_yds) AS tot_rec_yds,
+        SUM(rec_td) AS tot_rec_td,
+        SUM(carries) AS tot_carries,
+        SUM(run_yds) AS tot_run_yds,
+        SUM(run_td) AS tot_run_td,
+        SUM(fumbles_lost) AS tot_fumbles_lost,
+        SUM(games) AS tot_games,
+        SUM(fpts) AS tot_fpts,
+        ROUND(SUM(fpts) / 17, 2) AS avg_fpts
+    FROM running_back
+    WHERE season = 2023
+    GROUP BY player
+) AS rb_totals
+WHERE rb_report.player = rb_totals.player;
+	
+-- 	Creating a ranking system based on percentile ranK
+--  Finding the highest score, players scoring in top 5%, 10%, 25%, and above avg each week
+WITH ranked_teams AS (
+    SELECT
+        week,
+        player,
+        fpts,
+        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
+        MAX(fpts) OVER (PARTITION BY week) AS max_weekly_fpts,
+        COUNT(*) OVER (PARTITION BY week) AS player_count,
+        AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
+    FROM
+        running_back
+	GROUP BY
+		week,
+        player,
+        fpts
+)
+SELECT
+    week,
+    player,
+    fpts,
+    team_rank,	
+    CASE
+        WHEN fpts = max_weekly_fpts THEN 'Highest'
+        WHEN team_rank <= 0.05 * player_count THEN 'Top 5%'
+        WHEN team_rank <= 0.10 * player_count THEN 'Top 10%'
+        WHEN team_rank <= 0.25 * player_count THEN 'Top 25%'
+        WHEN fpts > avg_weekly_fpts THEN 'Above Average'
+        ELSE ''
+    END AS percentile_rank
+FROM
+    ranked_teams;
+-- The results match the results from Excel analyis that uses conditional formatting to achieve this 
+
+
+ALTER TABLE rb_report
+ADD COLUMN percentile_rank text;
+
+UPDATE rb_report AS r
+SET percentile_rank = rt.percentile_rank
+FROM (
+    -- Your original query to generate percentile ranks
+    WITH ranked_teams AS (
+        SELECT
+       		week,
+            player,
+            fpts,
+            RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
+            MAX(fpts) OVER (PARTITION BY week) AS max_weekly_fpts,
+            COUNT(*) OVER (PARTITION BY week) AS player_count,
+            AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
+        FROM
+            running_back
+		GROUP BY
+		week,
+        player,
+        fpts
+    )
+    SELECT
+        week,
+        player,
+        CASE
+            WHEN fpts = max_weekly_fpts THEN 'Highest'
+            WHEN team_rank <= 0.05 * player_count THEN 'Top 5%'
+            WHEN team_rank <= 0.10 * player_count THEN 'Top 10%'
+            WHEN team_rank <= 0.25 * player_count THEN 'Top 25%'
+            WHEN fpts > avg_weekly_fpts THEN 'Above Average'
+            ELSE ''
+        END AS percentile_rank
+    FROM
+        ranked_teams
+) AS rt
+WHERE r.player = rt.player;
+
+
+SELECT
+	player,
+	COUNT(*) FILTER(WHERE percentile_rank = 'Highest') AS "Highest",
+	COUNT(*) FILTER(WHERE percentile_rank = 'Top 5%') AS "Top 5%",
+	COUNT(*) FILTER(WHERE percentile_rank = 'Top 10%') AS "Top 10%",
+	COUNT(*) FILTER(WHERE percentile_rank = 'Top 25%') AS "Top 25%",
+	COUNT(*) FILTER(WHERE percentile_rank = 'Above Average') AS "Above Average",
+	COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) As "Total"
+FROM
+	rb_report
+GROUP BY
+	player
+ORDER BY
+	"Total" DESC;
+	
+
+SELECT
+	player,
+	ROUND(CAST(COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) AS numeric) / 17, 2) AS percentile_percent
+FROM
+	rb_report
+GROUP BY
+	player
+ORDER BY
+	percentile_percent DESC;
+	
+ALTER TABLE rb_report 
+ADD COLUMN percentile_percent numeric;
+UPDATE rb_report AS r
+SET percentile_percent = pr.percentile_percent
+FROM (
+	SELECT
+	player,
+	ROUND(CAST(COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) AS numeric) / 17, 2) AS percentile_percent
+FROM
+	rb_report
+GROUP BY
+	player) AS pr
+WHERE 
+	r.player = pr.player;
+SELECT * From rb_report LIMIT 1
