@@ -132,6 +132,39 @@ SELECT
 FROM
 	defense_report
 GROUP BY
-	player
-ORDER BY
-	"Total" DESC;
+	player;
+
+-- Quantifying the total 
+-- Finding the percentage of weeks where the player performed abve average or better
+SELECT 
+    player,
+    ROUND(CAST(COUNT(week) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) AS numeric) / 17, 2) AS percentile_percent
+FROM	
+    defense_report
+WHERE team_code = 'BAL'
+GROUP BY 
+    player
+ORDER BY 
+    percentile_percent DESC
+;
+	
+-- Adding percentile_percent to defense_report
+ALTER TABLE defense_report
+ADD COLUMN percentile_percent numeric;
+-- inerting values into percentile report using a CTE for faster processing
+WITH PercentilePercent AS (
+    SELECT 
+        player,
+        ROUND(CAST(COUNT(week) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) AS numeric) / 17, 2) AS percentile_percent
+    FROM    
+        defense_report
+    GROUP BY 
+        player
+)
+UPDATE defense_report AS dr
+SET percentile_percent = pp.percentile_percent
+FROM PercentilePercent AS pp
+WHERE dr.player = pp.player;
+
+
+SELECT * from defense_report
