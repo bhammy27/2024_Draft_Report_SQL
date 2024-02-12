@@ -167,4 +167,53 @@ FROM PercentilePercent AS pp
 WHERE dr.player = pp.player;
 
 
-SELECT * from defense_report
+-- Creating avg_fpts KPI
+ALTER TABLE defense_report
+ADD COLUMN avg_fpts numeric;
+
+WITH SeasonAvg AS (
+	SELECT
+		player,
+		ROUND(SUM(fpts) / SUM(games),2) AS avg_fpts
+	FROM
+		defense_report
+	GROUP BY
+		player
+	)
+UPDATE defense_report AS dr
+SET avg_fpts = sa.avg_fpts
+FROM SeasonAvg AS sa
+WHERE dr.player = sa.player;
+
+select  team_code, fpts, percentile_percent, avg_fpts from defense_report ORDER BY avg_fpts DESC
+
+-- Creating total fpts KPI
+ALTER TABLE defense_report
+ADD COLUMN total_fpts numeric;
+
+WITH TotalPoints AS (
+	SELECT
+		player,
+		SUM(fpts) AS total_fpts
+	FROM
+		defense_report
+	WHERE
+		season = 2023
+	GROUP BY
+		player
+	)
+UPDATE defense_report AS dr
+SET total_fpts = tp.total_fpts
+FROM TotalPoints AS tp
+WHERE dr.player = tp.player;
+
+SELECT  
+	player,
+	avg_fpts,
+ 	percentile_percent
+FROM 
+	defense_report
+
+ORDER BY
+	avg_fpts DESC
+
