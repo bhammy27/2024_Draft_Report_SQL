@@ -40,6 +40,7 @@ HAVING
 	
 -- Adding new columns for total 2023 stats	
 ALTER TABLE wr_report
+ADD COLUMN tot_fpts integer,
 ADD COLUMN tot_rec integer,
 ADD COLUMN tot_targets integer,
 ADD COLUMN tot_rec_yds integer,
@@ -49,7 +50,7 @@ ADD COLUMN tot_run_yds integer,
 ADD COLUMN tot_run_td integer,
 ADD COLUMN tot_fumbles_lost integer,
 ADD COLUMN tot_games integer,
-ADD COLUMN tot_fpts integer,
+
 ADD COLUMN avg_fpts numeric
 
 UPDATE wr_report
@@ -99,6 +100,7 @@ WITH ranked_teams AS (
         AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
     FROM
         wide_receiver
+	WHERE season = 2023
 	GROUP BY
 		week,
         player,
@@ -140,6 +142,7 @@ FROM (
             AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
         FROM
             wide_receiver
+		WHERE season = 2023
 		GROUP BY
 		week,
         player,
@@ -202,3 +205,6 @@ GROUP BY
 	player) AS pr
 WHERE 
 	w.player = pr.player;
+
+
+SELECT Distinct player, avg_fpts, tot_fpts, percentile_percent from wr_report ORDER BY avg_fpts DESC
