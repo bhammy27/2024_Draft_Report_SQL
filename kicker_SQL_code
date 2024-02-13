@@ -2,6 +2,7 @@
 -- CREATE TABLE to get Kicker KPI's
 CREATE TABLE k_report AS
 SELECT 
+	week,
 	player,
 	team_code,
 	position,
@@ -20,7 +21,8 @@ FROM
 WHERE 
 	season = 2023
 GROUP BY
-		player,
+	week,
+	player,
 	team_code,
 	position,
 	fg,
@@ -34,7 +36,7 @@ GROUP BY
 	games,fpts	
 HAVING
 	SUM(fg_att) > 0
-	AND SUM(xpa) > 0
+	OR SUM(xpa) > 0
 	
 -- Adding new columns for total 2023 stats	
 ALTER TABLE k_report
@@ -82,29 +84,29 @@ WHERE k_report.player = k_totals.player;
 	
 -- 	Creating a ranking system based on percentile ranK
 --  Finding the highest score, players scoring in top 5%, 10%, 25%, and above avg each week
-WITH ranked_teams AS (
-    SELECT
-        week,
-        player,
-        fpts,
-        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
-        MAX(fpts) OVER (PARTITION BY week) AS max_weekly_fpts,
-        COUNT(*) OVER (PARTITION BY week) AS player_count,
-        AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
-    FROM
-       kicker
+WITH ranked_team AS (
+	SELECT
+		week,
+		player,
+		fpts,
+		RANK() OVER(PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
+		MAX(fpts) OVER(PARTITION BY week) AS max_weekly_pts,
+		COUNT(*) OVER(PARTITION BY week) AS player_count,
+		AVG(fpts) OVER(PARTITION BY week) AS avg_weekly_fpts
+	FROM
+		k_report
 	GROUP BY
 		week,
-        player,
-        fpts
-)
+		player,
+		fpts
+	)
 SELECT
     week,
     player,
     fpts,
     team_rank,	
     CASE
-        WHEN fpts = max_weekly_fpts THEN 'Highest'
+        WHEN fpts = max_weekly_pts THEN 'Highest'
         WHEN team_rank <= 0.05 * player_count THEN 'Top 5%'
         WHEN team_rank <= 0.10 * player_count THEN 'Top 10%'
         WHEN team_rank <= 0.25 * player_count THEN 'Top 25%'
@@ -112,9 +114,8 @@ SELECT
         ELSE ''
     END AS percentile_rank
 FROM
-    ranked_teams;
+    ranked_team;
 -- The results match the results from Excel analyis that uses conditional formatting to achieve this 
-
 
 ALTER TABLE k_report
 ADD COLUMN percentile_rank text;
@@ -133,16 +134,16 @@ FROM (
             COUNT(*) OVER (PARTITION BY week) AS player_count,
             AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
         FROM
-            kicker
+            k_report
 		GROUP BY
 		week,
         player,
         fpts
     )
     SELECT
-        week,
-        player,
-        CASE
+		week,
+		player,
+         CASE
             WHEN fpts = max_weekly_fpts THEN 'Highest'
             WHEN team_rank <= 0.05 * player_count THEN 'Top 5%'
             WHEN team_rank <= 0.10 * player_count THEN 'Top 10%'
@@ -153,9 +154,10 @@ FROM (
     FROM
         ranked_teams
 ) AS rt
-WHERE k.player = rt.player;
+WHERE k.player = rt.player AND k.week = rt.week;
 
 
+	
 SELECT
 	player,
 	COUNT(*) FILTER(WHERE percentile_rank = 'Highest') AS "Highest",
@@ -163,25 +165,15 @@ SELECT
 	COUNT(*) FILTER(WHERE percentile_rank = 'Top 10%') AS "Top 10%",
 	COUNT(*) FILTER(WHERE percentile_rank = 'Top 25%') AS "Top 25%",
 	COUNT(*) FILTER(WHERE percentile_rank = 'Above Average') AS "Above Average",
-	COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) As "Total"
+	COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) As "Total"	
 FROM
 	k_report
 GROUP BY
 	player
-ORDER BY
-	"Total" DESC;
-	
+ORDER BY 
+"Total" DESC;
 
-SELECT
-	player,
-	ROUND(CAST(COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) AS numeric) / 17, 2) AS percentile_percent
-FROM
-	k_report
-GROUP BY
-	player
-ORDER BY
-	percentile_percent DESC;
-	
+
 ALTER TABLE k_report 
 ADD COLUMN percentile_percent numeric;
 UPDATE k_report AS k
@@ -196,4 +188,24 @@ GROUP BY
 	player) AS pr
 WHERE 
 	k.player = pr.player;
-SELECT DISTINCT *  From k_report ORDER BY avg_fpts DESC
+
+SELECT
+	DISTINCT player,
+	team_code,
+	position,
+	tot_fg,
+	tot_fg_att,
+	tot_under_forty,
+	tot_forty_yd_range,
+	tot_over_50_yds,
+	tot_xpt,
+	tot_xpa,
+	tot_games,
+	tot_fpts,
+	avg_fpts,
+	percentile_percent
+FROM
+	k_report
+ORDER BY
+	avg_fpts DESC
+ 
