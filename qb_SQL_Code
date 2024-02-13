@@ -1,3 +1,5 @@
+-- Draft Repor
+-- Creating QB report
 CREATE TABLE qb_report AS
 SELECT 
 	week,
@@ -41,6 +43,8 @@ HAVING
 	SUM(pass_att) > 0
 	OR SUM(carries ) > 0;
 	
+	
+-- ADDING fields showing total stats from 2023 season	
 ALTER TABLE qb_report
 ADD COLUMN tot_completions integer,
 ADD COLUMN tot_pass_att integer,
@@ -203,6 +207,26 @@ GROUP BY
 WHERE 
 	qb.player = pr.player;
 	
-	
+-- Checking final stats
+SELECT 
+	DISTINCT player,
+	tot_completions,
+	tot_pass_att,
+	tot_pass_yds,
+	tot_pass_td,
+	tot_interceptions_thrown,
+	tot_sacked,
+	tot_carries,
+	tot_run_yds,
+	tot_run_td,
+	tot_fumbles_lost,
+	tot_games,
+	tot_fpts,
+	avg_fpts,
+	percentile_percent
+FROM
+	qb_report
+Order BY
+	avg_fpts DESC;
 
 	
