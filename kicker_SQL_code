@@ -1,105 +1,199 @@
--- 2024 DRAFT REPORT
-DROP VIEW defense_report
--- Creating a VIEW filering all records for the 2023
-CREATE TABLE defense_report AS
-SELECT *
-FROM defense
-WHERE
-	season = 2023;
-	
--- double checking all weekly fpts values by cross referencing pts from my Yahoo league	
--- using the query below to filter through each team_code to check each team
--- also looking out for missing or duplicate values and errors that may have been overlooked
-SELECT week, fpts
-FROM defense_report
-WHERE team_code = 'SF'
-ORDER BY week;
-
--- CREATING KPIs queries for 2024 DRAFT REPORT
-
--- total fpts in 2023
--- cross referencing values with total_fpts values in my Excel Analysis
+-- 2024 Draft Report
+-- CREATE TABLE to get Kicker KPI's
+CREATE TABLE k_report AS
 SELECT 
 	player,
-	SUM(fpts) AS total_fpts
-FROM
-	defense_report
-GROUP BY 
-	player
-ORDER BY
-	total_fpts DESC;
+	team_code,
+	position,
+	fg,
+	fg_att,
+	longest_fg,
+	under_forty,
+	forty_yd_range,
+	over_50_yds,
+	xpt,
+	xpa,
+	games,
+	fpts
+FROM 
+	kicker
+WHERE 
+	season = 2023
+GROUP BY
+		player,
+	team_code,
+	position,
+	fg,
+	fg_att,
+	longest_fg,
+	under_forty,
+	forty_yd_range,
+	over_50_yds,
+	xpt,
+	xpa,
+	games,fpts	
+HAVING
+	SUM(fg_att) > 0
+	AND SUM(xpa) > 0
 	
--- total fpts in 2023
--- cross referencing values with total_fpts values in my Excel Analysis
-SELECT 
-	player,
-	ROUND(SUM(fpts) / SUM(games),2) AS avg_fpts
-FROM
-	defense_report
-GROUP BY 
-	player
-ORDER BY
-	avg_fpts DESC;
--- Because each team has a BYE week with fpts value of 0, could not use AVG function
--- Using AVG function reduced the output by factoring in an extra week with a value of 0 fpts
+-- Adding new columns for total 2023 stats	
+ALTER TABLE k_report
+Add Column	tot_fg integer,
+Add Column	tot_fg_att integer,
+Add Column	tot_under_forty integer,
+Add Column	tot_forty_yd_range integer,
+Add Column	tot_over_50_yds integer,
+Add Column	tot_xpt integer,
+Add Column	tot_xpa integer,
+Add Column	tot_games integer,
+Add Column  tot_fpts numeric,	
+Add Column  avg_fpts numeric
 
--- CREATING TOTAL DEFENSIVE POINTS AND AVG DEFENSIVE FPTS FOR 2023
--- will use this to calculate player percentile rankings
-SELECT
-	SUM(fpts) AS total_D_fpts
-FROM
-	defense_report;
-
-SELECT 
-	ROUND(SUM(fpts) / SUM(games),2) AS avg__d_fpts
-FROM
-	defense_report;
+UPDATE k_report
+SET 
+    tot_fg = k_totals.tot_fg,
+    tot_fg_att = k_totals.tot_fg_att,
+	tot_under_forty = k_totals.tot_under_forty,
+    tot_forty_yd_range  = k_totals.tot_forty_yd_range ,
+    tot_over_50_yds = k_totals.tot_over_50_yds,
+    tot_xpt = k_totals.tot_xpt,
+    tot_xpa = k_totals.tot_xpa,
+	tot_games = k_totals.tot_games,
+	tot_fpts = k_totals.tot_fpts,
+    avg_fpts = k_totals.avg_fpts
+FROM (
+    SELECT 
+        player,
+        SUM(fg) AS tot_fg,
+        SUM(fg_att) AS tot_fg_att,
+        SUM(under_forty) AS tot_under_forty,
+        SUM(forty_yd_range) AS tot_forty_yd_range,
+        SUM(over_50_yds) AS tot_over_50_yds,
+        SUM(xpt) AS tot_xpt,
+        SUM(xpa) AS tot_xpa,
+        SUM(games) AS tot_games,
+        SUM(fpts) AS tot_fpts,
+        ROUND(SUM(fpts) / SUM(games), 2) AS avg_fpts
+    FROM kicker
+    WHERE season = 2023
+    GROUP BY player
+) AS k_totals
+WHERE k_report.player = k_totals.player;
 	
--- 	Creating a ranking system based on percentile rank
+-- 	Creating a ranking system based on percentile ranK
 --  Finding the highest score, players scoring in top 5%, 10%, 25%, and above avg each week
-	
 WITH ranked_teams AS (
     SELECT
         week,
-        team_code,
+        player,
         fpts,
-        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank
+        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
+        MAX(fpts) OVER (PARTITION BY week) AS max_weekly_fpts,
+        COUNT(*) OVER (PARTITION BY week) AS player_count,
+        AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
     FROM
-        defense_report
-    GROUP BY
-        week,
-        team_code,
-	fpts
-	)
+       kicker
+	GROUP BY
+		week,
+        player,
+        fpts
+)
 SELECT
     week,
-    team_code,
+    player,
     fpts,
-    team_rank,
+    team_rank,	
     CASE
-        WHEN fpts = MAX(fpts) OVER (PARTITION BY week) THEN 'Highest'
-		WHEN team_rank <= 0.05 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 5%'
-        WHEN team_rank <= 0.10 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 10%'
-        WHEN team_rank <= 0.25 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 25%'
-        ELSE 'Below Average'
+        WHEN fpts = max_weekly_fpts THEN 'Highest'
+        WHEN team_rank <= 0.05 * player_count THEN 'Top 5%'
+        WHEN team_rank <= 0.10 * player_count THEN 'Top 10%'
+        WHEN team_rank <= 0.25 * player_count THEN 'Top 25%'
+        WHEN fpts > avg_weekly_fpts THEN 'Above Average'
+        ELSE ''
     END AS percentile_rank
 FROM
     ranked_teams;
-	
-Alter_table defense_report
-
 -- The results match the results from Excel analyis that uses conditional formatting to achieve this 
 
---  Creating Percentile_Index
---  using a pivot table to count the weekly percentile rank categories for the season to get a numerical value
+
+ALTER TABLE k_report
+ADD COLUMN percentile_rank text;
+
+UPDATE k_report AS k
+SET percentile_rank = rt.percentile_rank
+FROM (
+    -- Your original query to generate percentile ranks
+    WITH ranked_teams AS (
+        SELECT
+       		week,
+            player,
+            fpts,
+            RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
+            MAX(fpts) OVER (PARTITION BY week) AS max_weekly_fpts,
+            COUNT(*) OVER (PARTITION BY week) AS player_count,
+            AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
+        FROM
+            kicker
+		GROUP BY
+		week,
+        player,
+        fpts
+    )
+    SELECT
+        week,
+        player,
+        CASE
+            WHEN fpts = max_weekly_fpts THEN 'Highest'
+            WHEN team_rank <= 0.05 * player_count THEN 'Top 5%'
+            WHEN team_rank <= 0.10 * player_count THEN 'Top 10%'
+            WHEN team_rank <= 0.25 * player_count THEN 'Top 25%'
+            WHEN fpts > avg_weekly_fpts THEN 'Above Average'
+            ELSE ''
+        END AS percentile_rank
+    FROM
+        ranked_teams
+) AS rt
+WHERE k.player = rt.player;
+
+
 SELECT
 	player,
 	COUNT(*) FILTER(WHERE percentile_rank = 'Highest') AS "Highest",
 	COUNT(*) FILTER(WHERE percentile_rank = 'Top 5%') AS "Top 5%",
 	COUNT(*) FILTER(WHERE percentile_rank = 'Top 10%') AS "Top 10%",
 	COUNT(*) FILTER(WHERE percentile_rank = 'Top 25%') AS "Top 25%",
-	COUNT(*) FILTER(WHERE percentile_rank = 'Below Average') AS "Below Average"
+	COUNT(*) FILTER(WHERE percentile_rank = 'Above Average') AS "Above Average",
+	COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) As "Total"
 FROM
-	defense_report
+	k_report
 GROUP BY
-	player;
+	player
+ORDER BY
+	"Total" DESC;
+	
+
+SELECT
+	player,
+	ROUND(CAST(COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) AS numeric) / 17, 2) AS percentile_percent
+FROM
+	k_report
+GROUP BY
+	player
+ORDER BY
+	percentile_percent DESC;
+	
+ALTER TABLE k_report 
+ADD COLUMN percentile_percent numeric;
+UPDATE k_report AS k
+SET percentile_percent = pr.percentile_percent
+FROM (
+	SELECT
+	player,
+	ROUND(CAST(COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) AS numeric) / 17, 2) AS percentile_percent
+FROM
+	k_report
+GROUP BY
+	player) AS pr
+WHERE 
+	k.player = pr.player;
+SELECT DISTINCT *  From k_report ORDER BY avg_fpts DESC
