@@ -1,0 +1,208 @@
+CREATE TABLE qb_report AS
+SELECT 
+	week,
+	player,
+	team_code,
+	position,
+	completions,
+	pass_att,
+	pass_yds,
+	pass_td,
+	interceptions_thrown,
+	sacked,
+	carries,
+	run_yds,
+	run_td,
+	fumbles_lost,
+	games,
+	fpts
+FROM
+	quarterback
+WHERE 
+	season = 2023
+GROUP BY 
+	week,
+	player,
+	team_code,
+	position,
+	completions,
+	pass_att,
+	pass_yds,
+	pass_td,
+	interceptions_thrown,
+	sacked,
+	carries,
+	run_yds,
+	run_td,
+	fumbles_lost,
+	games,
+	fpts
+HAVING
+	SUM(pass_att) > 0
+	OR SUM(carries ) > 0;
+	
+ALTER TABLE qb_report
+ADD COLUMN tot_completions integer,
+ADD COLUMN tot_pass_att integer,
+ADD COLUMN tot_pass_yds integer,
+ADD COLUMN tot_pass_td integer,
+ADD COLUMN tot_interceptions_thrown integer,
+ADD COLUMN tot_sacked integer,
+ADD COLUMN tot_carries integer,
+ADD COLUMN tot_run_yds integer ,
+ADD COLUMN tot_run_td integer,
+ADD COLUMN tot_fumbles_lost integer ,
+ADD COLUMN tot_games integer,
+ADD COLUMN tot_fpts numeric,
+ADD COLUMN avg_fpts numeric
+
+UPDATE qb_report
+SET
+	tot_completions = qb_totals.tot_completions,
+	tot_pass_att = qb_totals.tot_pass_att,
+	tot_pass_yds = qb_totals.tot_pass_yds,
+	tot_pass_td = qb_totals.tot_pass_td,
+	tot_interceptions_thrown = qb_totals.tot_interceptions_thrown,
+	tot_sacked = qb_totals.tot_sacked,
+	tot_carries = qb_totals.tot_carries,
+	tot_run_yds = qb_totals.tot_run_yds,
+	tot_run_td = qb_totals.tot_run_td,
+	tot_fumbles_lost = qb_totals.tot_fumbles_lost,
+	tot_games = qb_totals.tot_games,
+	tot_fpts = qb_totals.tot_fpts,
+	avg_fpts = qb_totals.avg_fpts
+FROM (
+	SELECT 
+		player,
+		SUM(completions) AS tot_completions,
+		SUM(pass_att) AS tot_pass_att,
+		SUM(pass_yds) AS tot_pass_yds,
+		SUM(pass_td) AS tot_pass_td,
+		SUM(interceptions_thrown) AS tot_interceptions_thrown,
+		SUM(sacked) AS tot_sacked,
+		SUM(carries) AS tot_carries,
+		SUM(run_yds) AS tot_run_yds,
+		SUM(run_td) AS tot_run_td,
+		SUM(fumbles_lost) AS tot_fumbles_lost,
+		SUM(games) AS tot_games,
+		SUM(fpts) AS tot_fpts,
+		ROUND(SUM(fpts) / SUM(games),2) AS avg_fpts
+	FROM
+		quarterback
+	WHERE 
+		season = 2023
+	GROUP BY
+		player
+	) AS qb_totals
+WHERE
+	qb_report.player = qb_totals.player;
+	
+	
+WITH ranked_team AS (
+	SELECT
+		week,
+		player,
+		fpts,
+		RANK() OVER(PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
+		MAX(fpts) OVER(PARTITION BY week) AS max_weekly_pts,
+		COUNT(*) OVER(PARTITION BY week) AS player_count,
+		AVG(fpts) OVER(PARTITION BY week) AS avg_weekly_fpts
+	FROM
+		qb_report
+	GROUP BY
+		week,
+		player,
+		fpts
+	)
+SELECT
+    week,
+    player,
+    fpts,
+    team_rank,	
+    CASE
+        WHEN fpts = max_weekly_pts THEN 'Highest'
+        WHEN team_rank <= 0.05 * player_count THEN 'Top 5%'
+        WHEN team_rank <= 0.10 * player_count THEN 'Top 10%'
+        WHEN team_rank <= 0.25 * player_count THEN 'Top 25%'
+        WHEN fpts > avg_weekly_fpts THEN 'Above Average'
+        ELSE ''
+    END AS percentile_rank
+FROM
+    ranked_team;
+-- The results match the results from Excel analyis that uses conditional formatting to achieve this 
+
+ALTER TABLE qb_report
+ADD COLUMN percentile_rank text;
+
+UPDATE qb_report AS qb
+SET percentile_rank = rt.percentile_rank
+FROM (
+    -- Your original query to generate percentile ranks
+    WITH ranked_teams AS (
+        SELECT
+       		week,
+            player,
+            fpts,
+            RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
+            MAX(fpts) OVER (PARTITION BY week) AS max_weekly_fpts,
+            COUNT(*) OVER (PARTITION BY week) AS player_count,
+            AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
+        FROM
+            qb_report
+		GROUP BY
+		week,
+        player,
+        fpts
+    )
+    SELECT
+		week,
+		player,
+         CASE
+            WHEN fpts = max_weekly_fpts THEN 'Highest'
+            WHEN team_rank <= 0.05 * player_count THEN 'Top 5%'
+            WHEN team_rank <= 0.10 * player_count THEN 'Top 10%'
+            WHEN team_rank <= 0.25 * player_count THEN 'Top 25%'
+            WHEN fpts > avg_weekly_fpts THEN 'Above Average'
+            ELSE ''
+        END AS percentile_rank
+    FROM
+        ranked_teams
+) AS rt
+WHERE qb.player = rt.player AND qb.week = rt.week;
+
+
+	
+SELECT
+	player,
+	COUNT(*) FILTER(WHERE percentile_rank = 'Highest') AS "Highest",
+	COUNT(*) FILTER(WHERE percentile_rank = 'Top 5%') AS "Top 5%",
+	COUNT(*) FILTER(WHERE percentile_rank = 'Top 10%') AS "Top 10%",
+	COUNT(*) FILTER(WHERE percentile_rank = 'Top 25%') AS "Top 25%",
+	COUNT(*) FILTER(WHERE percentile_rank = 'Above Average') AS "Above Average",
+	COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) As "Total"	
+FROM
+	qb_report
+GROUP BY
+	player
+ORDER BY 
+"Total" DESC;
+
+
+ALTER TABLE qb_report 
+ADD COLUMN percentile_percent numeric;
+UPDATE qb_report AS qb
+SET percentile_percent = pr.percentile_percent
+FROM (
+	SELECT
+	player,
+	ROUND(CAST(COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) AS numeric) / 17, 2) AS percentile_percent
+FROM
+	qb_report
+GROUP BY
+	player) AS pr
+WHERE 
+	qb.player = pr.player;
+	
+	
+
+	
