@@ -1,4 +1,4 @@
--- Draft Repor
+-- Draft Report
 -- Creating QB report
 CREATE TABLE qb_report AS
 SELECT 
