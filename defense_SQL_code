@@ -216,4 +216,26 @@ FROM
 
 ORDER BY
 	avg_fpts DESC
-
+-- created view called d with top 10 defenses
+-- used this query to provide percentile_rank
+WITH ranked_teams AS (
+    SELECT
+        player,
+        avg_fpts,
+        DENSE_RANK() OVER (ORDER BY avg_fpts DESC) AS rank
+    FROM
+        d
+)
+SELECT
+    player,
+    avg_fpts,
+    CASE
+        WHEN rank = 1.0 THEN 'Highest'
+        WHEN rank <= 0.05 THEN 'Top 5%'
+        WHEN rank <= 0.10 THEN 'Top 10%'
+        WHEN rank <= 0.25 THEN 'Top 25%'
+        WHEN avg_fpts > (SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY avg_fpts) FROM d) THEN 'Above Average'
+        ELSE ''
+    END AS percentile_rank
+FROM
+    ranked_teams;
