@@ -1,0 +1,206 @@
+-- 2024 Draft Report
+-- CREATE TABLE to get TE KPI's
+CREATE TABLE te_report AS
+SELECT 
+	week,
+	player,
+	team_code,
+	position,
+	rec,
+	targets,
+	rec_yds,
+	rec_td,
+	carries,
+	run_yds,
+	run_td,
+	fumbles_lost,
+	games,
+	fpts
+FROM 
+	tight_end
+WHERE 
+	season = 2023
+GROUP BY	
+	week,
+	player,
+	team_code,
+	position,
+	rec,
+	targets,
+	rec_yds,
+	rec_td,
+	carries,
+	run_yds,
+	run_td,
+	fumbles_lost,
+	games,
+	fpts,
+	season	
+	
+ALTER TABLE te_report
+ADD COLUMN tot_fpts integer,
+ADD COLUMN tot_rec integer,
+ADD COLUMN tot_targets integer,
+ADD COLUMN tot_rec_yds integer,
+ADD COLUMN tot_rec_td integer,
+ADD COLUMN tot_carries integer,
+ADD COLUMN tot_run_yds integer,
+ADD COLUMN tot_run_td integer,
+ADD COLUMN tot_fumbles_lost integer,
+ADD COLUMN tot_games integer,
+ADD COLUMN avg_fpts numeric
+
+UPDATE te_report
+SET 
+	tot_rec = te_totals.tot_rec,
+    tot_targets = te_totals.tot_targets,
+    tot_rec_yds = te_totals.tot_rec_yds,
+    tot_rec_td = te_totals.tot_rec_td,
+    tot_carries = te_totals.tot_carries,
+    tot_run_yds = te_totals.tot_run_yds,
+    tot_run_td = te_totals.tot_run_td,
+    tot_fumbles_lost = te_totals.tot_fumbles_lost,
+    tot_games = te_totals.tot_games,
+    tot_fpts = te_totals.tot_fpts,
+    avg_fpts = te_totals.avg_fpts,
+    position = 'TE'
+FROM (
+    SELECT 
+        player,
+        SUM(rec) AS tot_rec,
+        SUM(targets) AS tot_targets,
+        SUM(rec_yds) AS tot_rec_yds,
+        SUM(rec_td) AS tot_rec_td,
+        SUM(carries) AS tot_carries,
+        SUM(run_yds) AS tot_run_yds,
+        SUM(run_td) AS tot_run_td,
+        SUM(fumbles_lost) AS tot_fumbles_lost,
+        SUM(games) AS tot_games,
+        SUM(fpts) AS tot_fpts,
+        ROUND(SUM(fpts) / SUM(games), 2) AS avg_fpts
+    FROM tight_end
+    WHERE season = 2023
+    GROUP BY player
+) AS te_totals
+WHERE te_report.player = te_totals.player;
+
+
+WITH ranked_teams AS (
+    SELECT
+        week,
+        player,
+        fpts,
+        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
+        MAX(fpts) OVER (PARTITION BY week) AS max_weekly_fpts,
+        COUNT(*) OVER (PARTITION BY week) AS player_count,
+        AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts,
+        CASE
+            WHEN fpts = MAX(fpts) OVER (PARTITION BY week) THEN 'Highest'
+            WHEN RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) <= 0.05 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 5%'
+            WHEN RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) <= 0.10 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 10%'
+            WHEN RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) <= 0.25 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 25%'
+            WHEN fpts > AVG(fpts) OVER (PARTITION BY week) THEN 'Above Average'
+            ELSE ''
+        END AS percentile_rank
+    FROM
+        tight_end
+    WHERE season = 2023
+    GROUP BY
+        week,
+        player,
+        fpts
+)
+SELECT
+    week,
+    player,
+    fpts,
+    percentile_rank
+FROM
+    ranked_teams;
+-- The results match the results from Excel analyis that uses conditional formatting to achieve this 
+
+
+ALTER TABLE te_report
+ADD COLUMN percentile_rank text;
+
+UPDATE te_report AS t
+SET percentile_rank = rt.percentile_rank
+FROM (
+   WITH ranked_teams AS (
+    SELECT
+        week,
+        player,
+        fpts,
+        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
+        MAX(fpts) OVER (PARTITION BY week) AS max_weekly_fpts,
+        COUNT(*) OVER (PARTITION BY week) AS player_count,
+        AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts,
+        CASE
+            WHEN fpts = MAX(fpts) OVER (PARTITION BY week) THEN 'Highest'
+            WHEN RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) <= 0.05 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 5%'
+            WHEN RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) <= 0.10 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 10%'
+            WHEN RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) <= 0.25 * COUNT(*) OVER (PARTITION BY week) THEN 'Top 25%'
+            WHEN fpts > AVG(fpts) OVER (PARTITION BY week) THEN 'Above Average'
+            ELSE ''
+        END AS percentile_rank
+    FROM
+        tight_end
+    WHERE season = 2023
+    GROUP BY
+        week,
+        player,
+        fpts
+)
+SELECT
+    week,
+    player,
+    fpts,
+    percentile_rank
+FROM
+    ranked_teams) AS rt
+WHERE t.player = rt.player;
+-- The results match the results from Excel analyis that uses conditional formatting to achieve this 
+select distinct player, percentile_rank from te_report
+
+
+SELECT
+	player,
+	COUNT(week) FILTER(WHERE percentile_rank = 'Highest') AS "Highest",
+	COUNT(week) FILTER(WHERE percentile_rank = 'Top 5%') AS "Top 5%",
+	COUNT(week) FILTER(WHERE percentile_rank = 'Top 10%') AS "Top 10%",
+	COUNT(week) FILTER(WHERE percentile_rank = 'Top 25%') AS "Top 25%",
+	COUNT(week) FILTER(WHERE percentile_rank = 'Above Average') AS "Above Average",
+	COUNT(week) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) As "Total"
+FROM
+	te_report
+GROUP BY
+	player
+ORDER BY
+	"Total" DESC;
+	
+
+SELECT
+	player,
+	ROUND(CAST(COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) AS numeric) / 17, 2) AS percentile_percent
+FROM
+	te_report
+GROUP BY
+	player
+ORDER BY
+	percentile_percent DESC;
+	
+ALTER TABLE te_report 
+ADD COLUMN percentile_percent numeric;
+UPDATE te_report AS t
+SET percentile_percent = pr.percentile_percent
+FROM (
+	SELECT
+	player,
+	ROUND(CAST(COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) AS numeric) / 17, 2) AS percentile_percent
+FROM
+	te_report
+GROUP BY
+	player) AS pr
+WHERE 
+	t.player = pr.player;
+
