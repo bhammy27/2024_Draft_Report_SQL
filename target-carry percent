@@ -1,0 +1,30 @@
+WITH 
+    -- Calculate total passes for each team
+    total_passes AS (
+        SELECT 
+            team_code, 
+            SUM(tot_pass_att) AS total_passes
+        FROM 
+            q_report
+        GROUP BY 
+            team_code
+    ),
+    -- Calculate total targets for each player
+    player_targets AS (
+        SELECT 
+            DISTINCT player, 
+            team_code, 
+            tot_targets 
+        FROM 
+            wr_report
+    )
+-- Calculate target percentage for each player
+SELECT 
+    DISTINCT pt.player,
+    ROUND((pt.tot_targets :: numeric / tp.total_passes), 2) AS target_percent
+FROM 
+    player_targets pt
+JOIN 
+    total_passes tp ON pt.team_code = tp.team_code
+ORDER BY 
+	target_percent DESC;
