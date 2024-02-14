@@ -100,7 +100,7 @@ WITH ranked_teams AS (
         COUNT(*) OVER (PARTITION BY week) AS player_count,
         AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
     FROM
-        running_back
+        rb_report
 	GROUP BY
 		week,
         player,
@@ -172,16 +172,17 @@ SELECT
 	COUNT(*) FILTER(WHERE percentile_rank = 'Above Average') AS "Above Average",
 	COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) As "Total"	
 FROM
-	rb_report
+	 rb_report
 GROUP BY
 	player
 ORDER BY 
 "Total" DESC;
 
 
-ALTER TABLE rb_report 
+ALTER TABLE  rb_report 
 ADD COLUMN percentile_percent numeric;
-UPDATE rb_report AS rb
+
+UPDATE  rb_report AS rb
 SET percentile_percent = pr.percentile_percent
 FROM (
 	SELECT
@@ -192,7 +193,7 @@ FROM
 GROUP BY
 	player) AS pr
 WHERE 
-	rb.player = rb.player;
+	rb.player = pr.player ;
 	
 SELECT 
 	DISTINCT player,
@@ -214,3 +215,27 @@ FROM
 	rb_report
 ORDER BY
 	avg_fpts DESC;
+	
+-- Creating a view to filter out the top players to begin to form the draft report
+-- Selecting round 50 players based on total fpts and avg fpts 
+CREATE VIEW rb AS
+SELECT 
+	DISTINCT player,
+	team_code,
+	position,
+	tot_fpts AS fpts,
+	avg_fpts,
+	percentile_percent,
+	tot_games AS games,
+	tot_targets AS targets,
+	tot_rec AS rec,
+	tot_rec_yds AS rec_yds,
+	tot_rec_td AS rec_td,
+	tot_carries AS carries,
+	tot_run_yds AS run_yds,
+	tot_run_td AS run_td,
+	tot_fumbles_lost AS fumbles_lost	
+FROM rb_report
+WHERE 
+	avg_fpts >= 9
+	OR tot_fpts >= 100;
