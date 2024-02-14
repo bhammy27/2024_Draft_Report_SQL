@@ -1,3 +1,4 @@
+
 -- Draft Report
 -- Creating QB report
 CREATE TABLE qb_report AS
@@ -43,7 +44,7 @@ HAVING
 	SUM(pass_att) > 0
 	OR SUM(carries ) > 0;
 	
-	
+
 -- ADDING fields showing total stats from 2023 season	
 ALTER TABLE qb_report
 ADD COLUMN tot_completions integer,
@@ -60,6 +61,7 @@ ADD COLUMN tot_games integer,
 ADD COLUMN tot_fpts numeric,
 ADD COLUMN avg_fpts numeric
 
+-- Updating qb_report to insert the record values 
 UPDATE qb_report
 SET
 	tot_completions = qb_totals.tot_completions,
@@ -100,8 +102,13 @@ FROM (
 	) AS qb_totals
 WHERE
 	qb_report.player = qb_totals.player;
-	
-	
+
+-- ensuring all records have QB for the position filed
+UPDATE qb_report
+SET position = 'QB'
+
+-- Creating a ranking system which identifies top performers for each week
+-- Identifying highest weekly score, scores in top 5%, 10%, 25% and above weekly avg
 WITH ranked_team AS (
 	SELECT
 		week,
@@ -135,9 +142,11 @@ FROM
     ranked_team;
 -- The results match the results from Excel analyis that uses conditional formatting to achieve this 
 
+-- creating column to insert a new field called percentile rank
 ALTER TABLE qb_report
 ADD COLUMN percentile_rank text;
 
+-- inserting percentile rank using the query above
 UPDATE qb_report AS qb
 SET percentile_rank = rt.percentile_rank
 FROM (
@@ -175,7 +184,7 @@ FROM (
 WHERE qb.player = rt.player AND qb.week = rt.week;
 
 
-	
+-- Creating a pivot table to count times each player finished in each weekly category	
 SELECT
 	player,
 	COUNT(*) FILTER(WHERE percentile_rank = 'Highest') AS "Highest",
@@ -191,14 +200,17 @@ GROUP BY
 ORDER BY 
 "Total" DESC;
 
-
+-- turning info from the pivot table into a percent of weeks 
 ALTER TABLE qb_report 
 ADD COLUMN percentile_percent numeric;
+
+-- inserting values into percentile_rank
 UPDATE qb_report AS qb
 SET percentile_percent = pr.percentile_percent
 FROM (
 	SELECT
 	player,
+	-- this calculation creates a percent of times a player finished in one of these categories
 	ROUND(CAST(COUNT(*) FILTER(WHERE percentile_rank IN ('Highest', 'Top 5%', 'Top 10%', 'Top 25%', 'Above Average')) AS numeric) / 17, 2) AS percentile_percent
 FROM
 	qb_report
@@ -230,3 +242,4 @@ Order BY
 	avg_fpts DESC;
 
 	
+
