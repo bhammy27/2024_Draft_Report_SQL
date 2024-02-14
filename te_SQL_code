@@ -2,6 +2,7 @@
 -- CREATE TABLE to get TE KPI's
 CREATE TABLE te_report AS
 SELECT 
+	season,
 	week,
 	player,
 	team_code,
@@ -21,6 +22,7 @@ FROM
 WHERE 
 	season = 2023
 GROUP BY
+	season,
 	week,
 	player,
 	team_code,
@@ -87,7 +89,7 @@ FROM (
     GROUP BY player
 ) AS te_totals
 WHERE te_report.player = te_totals.player;
-	
+
 -- 	Creating a ranking system based on percentile ranK
 --  Finding the highest score, players scoring in top 5%, 10%, 25%, and above avg each week
 WITH ranked_teams AS (
@@ -95,7 +97,8 @@ WITH ranked_teams AS (
         week,
         player,
         fpts,
-        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
+		avg_fpts,
+        RANK() OVER (PARTITION BY week ORDER BY (SUM(fpts)/SUM(games)) DESC) AS team_rank,
         MAX(fpts) OVER (PARTITION BY week) AS max_weekly_fpts,
         COUNT(*) OVER (PARTITION BY week) AS player_count,
         AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
@@ -104,7 +107,8 @@ WITH ranked_teams AS (
 	GROUP BY
 		week,
         player,
-        fpts
+        fpts,
+		avg_fpts
 )
 SELECT
     week,
@@ -181,7 +185,8 @@ ORDER BY
 
 ALTER TABLE te_report 
 ADD COLUMN percentile_percent numeric;
-
+ALTER TABLE te_report 
+ADD COLUMN percentile_percent numeric;
 UPDATE te_report AS te
 SET percentile_percent = pr.percentile_percent
 FROM (
@@ -193,25 +198,4 @@ FROM
 GROUP BY
 	player) AS pr
 WHERE 
-	te.player = te.player;
-	
-SELECT 
-	DISTINCT player,
-	tot_games,
-	position,
-	tot_rec,
-	tot_targets,
-	tot_rec_yds,
-	tot_rec_td,
-	tot_carries,
-	tot_run_yds,
-	tot_run_td,
-	tot_fumbles_lost,
-	tot_games,
-	tot_fpts,
-	avg_fpts,
-	percentile_percent
-FROM 
-	te_report
-ORDER BY
-	avg_fpts DESC;
+	te.player = pr.player;
