@@ -1,4 +1,3 @@
-
 -- Draft Report
 -- Creating QB report
 CREATE TABLE qb_report AS
@@ -241,5 +240,29 @@ FROM
 Order BY
 	avg_fpts DESC;
 
-	
+
+CREATE VIEW qb AS
+SELECT
+	DISTINCT player,
+	team_code,
+	position,
+	tot_fpts AS fpts,
+	avg_fpts,
+	percentile_percent,
+	tot_games AS games,
+	tot_pass_att AS pass_att,
+	tot_pass_yds AS pass_yds,
+	tot_pass_td AS pass_td,
+	tot_interceptions_thrown AS interceptions_thrown,
+	tot_sacked AS sacked,
+	tot_carries AS carries,
+	tot_run_yds AS run_rds,
+	tot_run_td AS run_td,
+	tot_fumbles_lost as fumbles_lost
+FROM
+	qb_report
+WHERE 
+	avg_fpts > 17
+	OR fpts > 200
+	OR player in ('Joe Burrow', 'Aaron Rodgers');
 
