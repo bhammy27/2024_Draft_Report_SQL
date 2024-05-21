@@ -25,72 +25,8 @@ ORDER BY
 -- 	Creating a ranking system based on percentile ranK
 --  Finding the highest score, players scoring in top 5%, 10%, 25%, and above avg each week
 
-WITH ranked_teams AS (
-    SELECT
-        week,
-        team_code,
-        fpts,
--- RANKING teams based off of avg fpts
-        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
--- Finding the highest score for each week
-        MAX(fpts) OVER (PARTITION BY week) AS max_weekly_fpts,
--- Counting the number of players (using team_code here) to calculate percentile with
-        COUNT(*) OVER (PARTITION BY week) AS team_count,
--- Calculating average weekly score
-        AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
-    FROM
-        defense_report
-    GROUP BY
-        week,
-        team_code,
-        fpts
-)
-SELECT
-    week,
-    team_code,
-    fpts,
-    team_rank,	
--- Using CASE to categorize the window function results from the CTE
-    CASE
-        WHEN fpts = max_weekly_fpts THEN 'Highest'
-        WHEN team_rank <= 0.05 * team_count THEN 'Top 5%'
-        WHEN team_rank <= 0.10 * team_count THEN 'Top 10%'
-        WHEN team_rank <= 0.25 * team_count THEN 'Top 25%'
-        WHEN fpts > avg_weekly_fpts THEN 'Above Average'
-        ELSE ''
-    END AS percentile_rank
-FROM
-    ranked_teams;
--- The results match the results from Excel analyis that uses conditional formatting to achieve this 
-
-
-
--- Assigning the results to the defense_report table adding team_rank column
-ALTER TABLE defense_report
-ADD COLUMN team_rank INTEGER,
-ADD COLUMN percentile_rank VARCHAR(20);
-
--- Inserting the team_rank values into defense_report
--- By creating a CTE and using teh results allows for needing to calculate team_rank only once 
--- This saves 251 msec of run time
-WITH ranked_teams AS (
-    SELECT
-        week,
-        team_code,
-        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank
-    FROM
-        defense_report
-    GROUP BY
-        week,
-        team_code
-)
-UPDATE defense_report AS dr
-SET team_rank = rt.team_rank
-FROM ranked_teams AS rt
-WHERE dr.week = rt.week AND dr.team_code = rt.team_code;
--- Using the Where clause to match team_rank with the unique combination of team_code and week
-WHERE dr.week = rt.week AND dr.team_code = rt.team_code;
-
+ALTER TABLE defense
+ADD COLUMN percentile_rank text; 
 
 -- Inserting values for percentile_rank into defense_report
 WITH ranked_teams AS (
@@ -98,28 +34,33 @@ WITH ranked_teams AS (
         week,
         team_code,
         fpts,
-        RANK() OVER (PARTITION BY week ORDER BY AVG(fpts) DESC) AS team_rank,
-        MAX(fpts) OVER (PARTITION BY week) AS max_fpts,
-        COUNT(*) OVER (PARTITION BY week) AS total_teams,
-        AVG(fpts) OVER (PARTITION BY week) AS avg_weekly_fpts
+		season,
+        RANK() OVER (PARTITION BY season, week ORDER BY AVG(fpts) DESC) AS team_rank,
+        MAX(fpts) OVER (PARTITION BY season, week) AS max_fpts,
+        COUNT(*) OVER (PARTITION BY season, week) AS total_teams,
+        AVG(fpts) OVER (PARTITION BY season, week) AS avg_weekly_fpts
     FROM
-        defense_report
+        defense
     GROUP BY
         week,
         team_code,
-        fpts
+        fpts,
+		season
 )
-UPDATE defense_report AS dr
+UPDATE defense AS d
 SET percentile_rank = CASE
         WHEN rt.fpts = rt.max_fpts THEN 'Highest'
         WHEN rt.team_rank <= 0.05 * rt.total_teams THEN 'Top 5%'
         WHEN rt.team_rank <= 0.10 * rt.total_teams THEN 'Top 10%'
         WHEN rt.team_rank <= 0.25 * rt.total_teams THEN 'Top 25%'
         WHEN rt.fpts > rt.avg_weekly_fpts THEN 'Above Average'
-        ELSE ''
+        ELSE 'Below Average'
     END
 FROM ranked_teams AS rt
-WHERE dr.week = rt.week AND dr.team_code = rt.team_code;
+WHERE d.week = rt.week AND d.team_code = rt.team_code AND d.season = rt.season;
+SELECT * from defense order by season desc, week, fpts desc
+-- The results match the results from Excel analyis that uses conditional formatting to achieve this 
+
 
 SELECT
 	player,
